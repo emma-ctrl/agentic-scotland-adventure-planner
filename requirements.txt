@@ -1,0 +1,3 @@
+requests>=2.31.0
+modal>=0.64.0
+fastapi>=0.100.0
