@@ -12,7 +12,7 @@ DRIVING_MCP_URL = "https://emma-ctrl--scottish-driving-mcp-fastapi-app.modal.run
 
 # Initialize Nebius AI Studio client
 client = OpenAI(
-    api_key="eyJhbGciOiJIUzI1NiIsImtpZCI6IlV6SXJWd1h0dnprLVRvdzlLZWstc0M1akptWXBvX1VaVkxUZlpnMDRlOFUiLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJnaXRodWJ8NjQxOTk5MzgiLCJzY29wZSI6Im9wZW5pZCBvZmZsaW5lX2FjY2VzcyIsImlzcyI6ImFwaV9rZXlfaXNzdWVyIiwiYXVkIjpbImh0dHBzOi8vbmViaXVzLWluZmVyZW5jZS5ldS5hdXRoMC5jb20vYXBpL3YyLyJdLCJleHAiOjE5MDY2MjYzOTgsInV1aWQiOiJiMzE1YWJiYS05NDUyLTQxYTItOTIxNy0xOGY2NjYxZDg0NTMiLCJuYW1lIjoiRW1tYSIsImV4cGlyZXNfYXQiOiIyMDMwLTA2LTAyVDEwOjI2OjM4KzAwMDAifQ.0ovoenUoRM5CctohO-0A416Z2YdlR3Nqn4W5XLmaCeE",
+    api_key="apikey",
     base_url="https://api.studio.nebius.ai/v1"
 )
 
@@ -498,7 +498,7 @@ def extract_route_geometry_from_mcp(mcp_response, locations):
             end_lon = float(locations[1][2])
             
             # Use your actual API key here
-            api_key = "5b3ce3597851110001cf62487be29d335d954da6b7329026e1ffd83c"  # ← Your real key
+            api_key = "api_key"  # ← Your real key
             
             url = "https://api.openrouteservice.org/v2/directions/driving-car"
             headers = {
