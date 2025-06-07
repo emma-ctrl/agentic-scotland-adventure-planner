@@ -1,7 +1,9 @@
 import gradio as gr
 import requests
 from openai import OpenAI
-import os
+import json
+from datetime import datetime
+import re
 
 # Your MCP server URLs
 WEATHER_MCP_URL = "https://emma-ctrl--scotland-weather-mcp-fastapi-app.modal.run/mcp"
@@ -283,6 +285,7 @@ def call_mcp_server(server_url, tool_name, arguments):
     
     try:
         response = requests.post(server_url, json=payload, timeout=30)
+        response = requests.post(server_url, json=payload, timeout=30)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -291,11 +294,12 @@ def call_mcp_server(server_url, tool_name, arguments):
 def format_response(response, data_type="data"):
     """Format the response nicely"""
     if "error" in response:
-        return f"❌ Error: {response['error']}"
+        return f"❌ {response['error']}"
     
     if "content" in response and response["content"]:
         return response["content"][0]["text"]
     
+    return f"❌ No {data_type} data received"
     return f"❌ No {data_type} data received"
 
 def extract_locations_from_text(text):
@@ -569,7 +573,7 @@ Give a helpful, natural response under 200 words focusing on their Scottish adve
         bot_response = "I'm having technical difficulties. Please try a simpler question like 'weather in Edinburgh' or let me know specific Scottish locations you're interested in!"
     
     history.append([message, bot_response])
-    return history, ""
+    return history, "", conversation_state
 
 # Create the ultimate Scottish adventure planning interface
 with gr.Blocks(title="🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner", theme=gr.themes.Soft()) as app:
@@ -598,7 +602,7 @@ with gr.Blocks(title="🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner", 
         example7 = gr.Button("⛅ Weather + route Perth→Fort William", size="sm")
         example8 = gr.Button("🥾 Hiking weather Ben Nevis", size="sm")
     
-    msg.submit(intelligent_weather_chat, [msg, chatbot], [chatbot, msg])
+    msg.submit(adventure_chat, [msg, chatbot, conversation_state], [chatbot, msg, conversation_state])
     
     # Example button actions showcasing different combinations
     example1.click(lambda: "What's the weather like in Edinburgh?", outputs=msg)
