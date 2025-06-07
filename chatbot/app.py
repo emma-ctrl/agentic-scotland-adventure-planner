@@ -9,7 +9,7 @@ MCP_URL = "https://emma-ctrl--scotland-weather-mcp-fastapi-app.modal.run/mcp"
 
 # Initialize Nebius AI Studio client
 client = OpenAI(
-    api_key="eyJhbGciOiJIUzI1NiIsImtpZCI6IlV6SXJWd1h0dnprLVRvdzlLZWstc0M1akptWXBvX1VaVkxUZlpnMDRlOFUiLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJnaXRodWJ8NjQxOTk5MzgiLCJzY29wZSI6Im9wZW5pZCBvZmZsaW5lX2FjY2VzcyIsImlzcyI6ImFwaV9rZXlfaXNzdWVyIiwiYXVkIjpbImh0dHBzOi8vbmViaXVzLWluZmVyZW5jZS5ldS5hdXRoMC5jb20vYXBpL3YyLyJdLCJleHAiOjE5MDY2MjYzOTgsInV1aWQiOiJiMzE1YWJiYS05NDUyLTQxYTItOTIxNy0xOGY2NjYxZDg0NTMiLCJuYW1lIjoiRW1tYSIsImV4cGlyZXNfYXQiOiIyMDMwLTA2LTAyVDEwOjI2OjM4KzAwMDAifQ.0ovoenUoRM5CctohO-0A416Z2YdlR3Nqn4W5XLmaCeE",
+    api_key="api_key",
     base_url="https://api.studio.nebius.ai/v1"
 )
 
