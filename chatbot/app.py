@@ -12,7 +12,7 @@ DRIVING_MCP_URL = "https://emma-ctrl--scottish-driving-mcp-fastapi-app.modal.run
 
 # Initialize Nebius AI Studio client
 client = OpenAI(
-    api_key="apikey",
+    api_key="eyJhbGciOiJIUzI1NiIsImtpZCI6IlV6SXJWd1h0dnprLVRvdzlLZWstc0M1akptWXBvX1VaVkxUZlpnMDRlOFUiLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJnaXRodWJ8NjQxOTk5MzgiLCJzY29wZSI6Im9wZW5pZCBvZmZsaW5lX2FjY2VzcyIsImlzcyI6ImFwaV9rZXlfaXNzdWVyIiwiYXVkIjpbImh0dHBzOi8vbmViaXVzLWluZmVyZW5jZS5ldS5hdXRoMC5jb20vYXBpL3YyLyJdLCJleHAiOjE5MDY2MjYzOTgsInV1aWQiOiJiMzE1YWJiYS05NDUyLTQxYTItOTIxNy0xOGY2NjYxZDg0NTMiLCJuYW1lIjoiRW1tYSIsImV4cGlyZXNfYXQiOiIyMDMwLTA2LTAyVDEwOjI2OjM4KzAwMDAifQ.0ovoenUoRM5CctohO-0A416Z2YdlR3Nqn4W5XLmaCeE",
     base_url="https://api.studio.nebius.ai/v1"
 )
 
@@ -285,7 +285,6 @@ def call_mcp_server(server_url, tool_name, arguments):
     
     try:
         response = requests.post(server_url, json=payload, timeout=30)
-        response = requests.post(server_url, json=payload, timeout=30)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -299,7 +298,6 @@ def format_response(response, data_type="data"):
     if "content" in response and response["content"]:
         return response["content"][0]["text"]
     
-    return f"❌ No {data_type} data received"
     return f"❌ No {data_type} data received"
 
 def extract_locations_from_text(text):
@@ -395,6 +393,124 @@ def should_get_driving_data(message):
     message_lower = message.lower()
     return any(keyword in message_lower for keyword in driving_keywords)
 
+def get_scottish_coordinates():
+    """Return coordinates for Scottish locations"""
+    return {
+        "edinburgh": [55.9533, -3.1883],
+        "glasgow": [55.8642, -4.2518],
+        "aberdeen": [57.1497, -2.0943],
+        "dundee": [56.4620, -2.9707],
+        "stirling": [56.1165, -3.9369],
+        "inverness": [57.4778, -4.2247],
+        "fort william": [56.8198, -5.1052],
+        "aviemore": [57.1952, -3.8263],
+        "perth": [56.3956, -3.4309],
+        "oban": [56.4154, -5.4713],
+        "pitlochry": [56.7028, -3.7340],
+        "isle of skye": [57.2740, -6.2149],
+        "skye": [57.2740, -6.2149],
+        "isle of mull": [56.4504, -5.8037],
+        "mull": [56.4504, -5.8037],
+        "isle of arran": [55.5836, -5.2489],
+        "arran": [55.5836, -5.2489],
+        "mallaig": [57.0067, -5.8283],
+        "portree": [57.4123, -6.1956],
+        "tobermory": [56.6229, -6.0679],
+        "glencoe": [56.6756, -5.1019],
+        "glen coe": [56.6756, -5.1019],
+        "ben nevis": [56.7969, -5.0037],
+        "st andrews": [56.3398, -2.7967],
+        "cairngorms": [57.0833, -3.6667],
+        "loch lomond": [56.1000, -4.6000],
+        "loch ness": [57.3229, -4.4244],
+        "kyle of lochalsh": [57.2785, -5.7127],
+        "kyle": [57.2785, -5.7127],
+        "thurso": [58.5944, -3.5267],
+        "wick": [58.4394, -3.0956],
+        "ullapool": [57.8952, -5.1587],
+        "durness": [58.5667, -4.7167]
+    }
+
+def create_map_html(locations=[], routes=[], center_lat=56.8, center_lon=-4.2, zoom=6):
+    """Generate interactive map using Folium"""
+    try:
+        import folium
+        
+        # Create base map
+        if locations:
+            # Center on first location
+            center_lat = locations[0][1]
+            center_lon = locations[0][2]
+            zoom = 8  # Zoom out a bit to see multiple locations
+        
+        m = folium.Map(
+            location=[center_lat, center_lon],
+            zoom_start=zoom,
+            tiles='OpenStreetMap'
+        )
+        
+        # Add markers
+        colors = ['red', 'blue', 'green', 'purple', 'orange']
+        for i, (name, lat, lon) in enumerate(locations):
+            folium.Marker(
+                [lat, lon],
+                popup=f"<b>{name}</b>",
+                tooltip=name,
+                icon=folium.Icon(color=colors[i % len(colors)], icon='info-sign')
+            ).add_to(m)
+        
+        # Add route line if multiple locations
+        if len(locations) > 1:
+            coords = [[lat, lon] for _, lat, lon in locations]
+            folium.PolyLine(
+                coords,
+                color='red',
+                weight=4,
+                opacity=0.8,
+                popup="Driving Route"
+            ).add_to(m)
+            
+            # Auto-fit to show all markers
+            sw = [min([lat for _, lat, lon in locations]), min([lon for _, lat, lon in locations])]
+            ne = [max([lat for _, lat, lon in locations]), max([lon for _, lat, lon in locations])]
+            m.fit_bounds([sw, ne], padding=(20, 20))
+        
+        # Convert to HTML string
+        return m._repr_html_()
+        
+    except ImportError:
+        return """
+        <div style="padding: 50px; text-align: center; color: #666;">
+            <h3>Interactive Map</h3>
+            <p>Install folium for interactive maps:<br>
+            <code>pip install folium</code></p>
+        </div>
+        """
+
+def extract_locations_and_routes_from_conversation(message, locations_mentioned):
+    """Extract locations and potential routes from current message and conversation context"""
+    coords_db = get_scottish_coordinates()
+    
+    # Get coordinates for mentioned locations
+    location_coords = []
+    for location in locations_mentioned:
+        location_key = location.lower().strip()
+        if location_key in coords_db:
+            lat, lon = coords_db[location_key]
+            location_coords.append((location, lat, lon))
+    
+    # Detect route patterns
+    routes = []
+    message_lower = message.lower()
+    
+    route_patterns = ["from", "to", "drive", "route", "road trip", "journey", "travel"]
+    
+    if any(pattern in message_lower for pattern in route_patterns) and len(location_coords) >= 2:
+        if len(location_coords) >= 2:
+            routes.append(location_coords)
+    
+    return location_coords, routes
+
 # Replace your intelligent_weather_chat function with this stabilized version
 
 def intelligent_weather_chat(message, history):
@@ -467,13 +583,13 @@ def intelligent_weather_chat(message, history):
         # SIMPLIFIED SYSTEM PROMPT - much shorter to prevent token issues
         system_prompt = """You are a helpful Scottish adventure assistant. 
 
-Be conversational, practical, and enthusiastic about Scottish adventures.
+        Be conversational, practical, and enthusiastic about Scottish adventures.
 
-If you have weather data, focus on that first - interpret conditions for their activity and give gear advice.
-If you have daylight data, mention it for photography or camping timing.  
-If you have driving data, include route advice and Highland driving tips.
+        If you have weather data, focus on that first - interpret conditions for their activity and give gear advice.
+        If you have daylight data, mention it for photography or camping timing.  
+        If you have driving data, include route advice and Highland driving tips.
 
-Keep responses natural and under 200 words. Focus on practical advice for their Scottish adventure."""
+        Keep responses natural and under 200 words. Focus on practical advice for their Scottish adventure."""
         
         # Build MUCH SHORTER context
         context_parts = []
@@ -568,28 +684,70 @@ Give a helpful, natural response under 200 words focusing on their Scottish adve
         
         print(f"DEBUG: Final response length: {len(bot_response)} chars")
         
+        # ========== MAP UPDATE LOGIC ==========
+        # Extract locations and routes for map
+        location_coords, routes = extract_locations_and_routes_from_conversation(message, locations)
+        
+        # Create updated map HTML
+        if location_coords:
+            updated_map_html = create_map_html(
+                locations=location_coords,
+                routes=routes,
+                center_lat=location_coords[0][1] if location_coords else 56.8,
+                center_lon=location_coords[0][2] if location_coords else -4.2,
+                zoom=8 if len(location_coords) <= 2 else 7
+            )
+        else:
+            # Default Scotland overview map
+            updated_map_html = create_map_html(
+                locations=[],
+                routes=[],
+                center_lat=56.8,
+                center_lon=-4.2,
+                zoom=6
+            )
+        
+        print(f"DEBUG: Map updated with {len(location_coords)} locations")
+        
     except Exception as e:
         print(f"ERROR: {e}")
         bot_response = "I'm having technical difficulties. Please try a simpler question like 'weather in Edinburgh' or let me know specific Scottish locations you're interested in!"
+        # Default map for error case
+        updated_map_html = create_map_html()
     
     history.append([message, bot_response])
-    return history, "", conversation_state
+    return history, "", updated_map_html
 
 # Create the ultimate Scottish adventure planning interface
 with gr.Blocks(title="🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner", theme=gr.themes.Soft()) as app:
     gr.Markdown("# 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner")
-    gr.Markdown("**Your complete Scottish adventure assistant!** Get weather forecasts, sunrise/sunset times, driving directions, and expert advice for exploring Scotland. Just mention your locations and what you want to do!")
+    gr.Markdown("**Your complete Scottish adventure assistant!** Get weather, photography timing, and driving directions.")
     
-    chatbot = gr.Chatbot(height=400)
-    msg = gr.Textbox(
-        label="Plan your Scottish adventure! Shift + enter to submit your question",
-        placeholder="Try: 'Road trip from Edinburgh to Skye with camping stops' or 'Best photography spots near Fort William with weather' or 'How far is Aviemore from Perth and what's the weather like?'",
-        lines=2
-    )
+    with gr.Row():
+        with gr.Column(scale=3):
+            chatbot = gr.Chatbot(height=400)
+            msg = gr.Textbox(
+                label="Plan your Scottish adventure!",
+                placeholder="Try: 'Road trip from Edinburgh to Skye' or 'Photography spots near Fort William'",
+                lines=2
+            )
+        
+        with gr.Column(scale=2):
+            # Simplified map display
+            map_display = gr.HTML(
+                value="""
+                <div style="width: 100%; height: 400px; border: 2px solid #ddd; background: #f5f5f5; display: flex; align-items: center; justify-content: center;">
+                    <div style="text-align: center;">
+                        <h3>🗺️ Interactive Map</h3>
+                        <p>Map will show locations from your conversation</p>
+                    </div>
+                </div>
+                """,
+                label="📍 Interactive Map"
+            )
     
-    # Comprehensive example buttons showcasing all capabilities
+    # Compact example buttons
     gr.Markdown("### 🎯 Quick Examples")
-    
     with gr.Row():
         example1 = gr.Button("☀️ Weather Edinburgh", size="sm")
         example2 = gr.Button("🚗 Drive Edinburgh→Skye", size="sm") 
@@ -602,9 +760,10 @@ with gr.Blocks(title="🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner", 
         example7 = gr.Button("⛅ Weather + route Perth→Fort William", size="sm")
         example8 = gr.Button("🥾 Hiking weather Ben Nevis", size="sm")
     
-    msg.submit(adventure_chat, [msg, chatbot, conversation_state], [chatbot, msg, conversation_state])
+    # IMPORTANT: Update the submit function to also update the map
+    msg.submit(intelligent_weather_chat, [msg, chatbot], [chatbot, msg, map_display])
     
-    # Example button actions showcasing different combinations
+    # Button actions
     example1.click(lambda: "What's the weather like in Edinburgh?", outputs=msg)
     example2.click(lambda: "How long to drive from Edinburgh to Skye?", outputs=msg)
     example3.click(lambda: "Golden hour photography times in Glencoe?", outputs=msg)
@@ -614,7 +773,6 @@ with gr.Blocks(title="🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner", 
     example7.click(lambda: "Weather and driving route from Perth to Fort William", outputs=msg)
     example8.click(lambda: "Hiking weather around Ben Nevis area", outputs=msg)
     
-    gr.Markdown("---")
     gr.Markdown("*Powered by Open-Meteo weather data, Sunrise-Sunset API, OpenRouteService routing, custom MCP servers, and Nebius AI Studio*")
 
 if __name__ == "__main__":
