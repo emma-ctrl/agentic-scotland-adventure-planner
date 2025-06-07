@@ -300,8 +300,10 @@ def format_response(response, data_type="data"):
     
     return f"❌ No {data_type} data received"
 
+# Replace the extract_locations_from_text function with this enhanced version:
+
 def extract_locations_from_text(text):
-    """Extract Scottish location names from text using enhanced pattern matching"""
+    """Extract Scottish location names with better journey order detection"""
     scottish_places = [
         "Edinburgh", "Glasgow", "Aberdeen", "Dundee", "Stirling", "Inverness",
         "Fort William", "Aviemore", "Perth", "Paisley", "Greenock", "Dunfermline",
@@ -320,6 +322,37 @@ def extract_locations_from_text(text):
         "Tyndrum", "Crianlarich", "Killin", "The Trossachs", "Trossachs"
     ]
     
+    # ENHANCED: Look for journey order keywords
+    text_lower = text.lower()
+    
+    # Check for journey order patterns
+    journey_patterns = [
+        r'start in (.*?) and then (?:go to |visit )(.*?) and then (.*?)(?:\.|$)',
+        r'from (.*?) to (.*?) (?:via |through |and then )(.*?)(?:\.|$)',
+        r'(.*?) to (.*?) to (.*?)(?:\.|$)',
+        r'(.*?) → (.*?) → (.*?)(?:\.|$)',
+        r'(.*?) then (.*?) then (.*?)(?:\.|$)'
+    ]
+    
+    # Try to extract ordered journey
+    for pattern in journey_patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            ordered_locations = []
+            for group in match.groups():
+                group_clean = group.strip().replace(' and', '').replace(',', '')
+                # Find matching Scottish place
+                for place in scottish_places:
+                    if place.lower() in group_clean:
+                        if place not in ordered_locations:
+                            ordered_locations.append(place)
+                            break
+            
+            if len(ordered_locations) >= 2:
+                print(f"DEBUG: Found journey order: {ordered_locations}")
+                return ordered_locations
+    
+    # Fallback to original method if no journey pattern found
     found_locations = []
     text_upper = text.title()
     
@@ -330,6 +363,24 @@ def extract_locations_from_text(text):
         if place in text_upper and place not in found_locations:
             found_locations.append(place)
     
+    # Try to reorder based on position in text for common journey words
+    if len(found_locations) >= 2:
+        journey_indicators = ['start', 'begin', 'first', 'then', 'next', 'finally', 'end']
+        
+        # Look for starting location
+        for indicator in ['start in', 'begin in', 'from']:
+            if indicator in text_lower:
+                for location in found_locations:
+                    location_pos = text_lower.find(location.lower())
+                    indicator_pos = text_lower.find(indicator)
+                    if location_pos > indicator_pos and location_pos - indicator_pos < 50:
+                        # Move this location to the front
+                        if location in found_locations:
+                            found_locations.remove(location)
+                            found_locations.insert(0, location)
+                        break
+    
+    print(f"DEBUG: Extracted locations (fallback): {found_locations}")
     return found_locations
 
 def extract_date_from_text(text):
@@ -393,6 +444,107 @@ def should_get_driving_data(message):
     message_lower = message.lower()
     return any(keyword in message_lower for keyword in driving_keywords)
 
+def decode_polyline(polyline_str):
+    """Decode Google polyline string into lat/lon coordinates"""
+    try:
+        index = 0
+        lat = 0
+        lng = 0
+        coordinates = []
+        
+        while index < len(polyline_str):
+            # Decode latitude
+            shift = 0
+            result = 0
+            while True:
+                byte = ord(polyline_str[index]) - 63
+                index += 1
+                result |= (byte & 0x1f) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            
+            dlat = ~(result >> 1) if result & 1 else result >> 1
+            lat += dlat
+            
+            # Decode longitude
+            shift = 0
+            result = 0
+            while True:
+                byte = ord(polyline_str[index]) - 63
+                index += 1
+                result |= (byte & 0x1f) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            
+            dlng = ~(result >> 1) if result & 1 else result >> 1
+            lng += dlng
+            
+            coordinates.append([lat / 1e5, lng / 1e5])
+        
+        return coordinates
+    except Exception as e:
+        print(f"DEBUG: Polyline decode error: {e}")
+        return []
+
+def extract_route_geometry_from_mcp(mcp_response, locations):
+    """Extract real driving route coordinates from OpenRouteService API"""
+    try:
+        if len(locations) >= 2:
+            start_lat = float(locations[0][1])
+            start_lon = float(locations[0][2]) 
+            end_lat = float(locations[1][1])
+            end_lon = float(locations[1][2])
+            
+            # Use your actual API key here
+            api_key = "5b3ce3597851110001cf62487be29d335d954da6b7329026e1ffd83c"  # ← Your real key
+            
+            url = "https://api.openrouteservice.org/v2/directions/driving-car"
+            headers = {
+                'Accept': 'application/json',
+                'Authorization': api_key
+            }
+            
+            body = {
+                "coordinates": [[start_lon, start_lat], [end_lon, end_lat]],
+                "format": "geojson",
+                "radiuses": [5000, 5000]
+            }
+            
+            response = requests.post(url, headers=headers, json=body, timeout=10)
+            print(f"DEBUG: Got response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if 'routes' in data and len(data['routes']) > 0:
+                    route = data['routes'][0]
+                    
+                    if isinstance(route, dict) and 'geometry' in route:
+                        geometry = route['geometry']
+                        
+                        if isinstance(geometry, str):
+                            # It's an encoded polyline - decode it!
+                            print(f"DEBUG: Decoding polyline of length: {len(geometry)}")
+                            decoded_coords = decode_polyline(geometry)
+                            print(f"DEBUG: SUCCESS! Decoded {len(decoded_coords)} route points")
+                            return decoded_coords
+                        else:
+                            print(f"DEBUG: Geometry is not a string: {type(geometry)}")
+                    else:
+                        print(f"DEBUG: Route structure issue: {route}")
+                else:
+                    print(f"DEBUG: No routes in response")
+                    
+    except Exception as e:
+        print(f"DEBUG: Exception: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Fallback to straight line
+    return [[locations[0][1], locations[0][2]], [locations[1][1], locations[1][2]]]
+
 def get_scottish_coordinates():
     """Return coordinates for Scottish locations"""
     return {
@@ -428,20 +580,20 @@ def get_scottish_coordinates():
         "thurso": [58.5944, -3.5267],
         "wick": [58.4394, -3.0956],
         "ullapool": [57.8952, -5.1587],
-        "durness": [58.5667, -4.7167]
+        "durness": [58.5667, -4.7167],
+        "cairngorms": [57.0833, -3.6667],
+        "cairngorms national park": [57.1952, -3.8263]
     }
 
 def create_map_html(locations=[], routes=[], center_lat=56.8, center_lon=-4.2, zoom=6):
-    """Generate interactive map using Folium"""
+    """Generate interactive map using Folium with real driving routes"""
     try:
         import folium
         
-        # Create base map
         if locations:
-            # Center on first location
             center_lat = locations[0][1]
             center_lon = locations[0][2]
-            zoom = 8  # Zoom out a bit to see multiple locations
+            zoom = 8
         
         m = folium.Map(
             location=[center_lat, center_lon],
@@ -459,33 +611,23 @@ def create_map_html(locations=[], routes=[], center_lat=56.8, center_lon=-4.2, z
                 icon=folium.Icon(color=colors[i % len(colors)], icon='info-sign')
             ).add_to(m)
         
-        # Add route line if multiple locations
-        if len(locations) > 1:
-            coords = [[lat, lon] for _, lat, lon in locations]
+        # Add actual driving route if available
+        if routes and len(routes) > 1:
             folium.PolyLine(
-                coords,
+                routes,
                 color='red',
                 weight=4,
                 opacity=0.8,
-                popup="Driving Route"
+                popup="🚗 Driving Route"
             ).add_to(m)
             
-            # Auto-fit to show all markers
-            sw = [min([lat for _, lat, lon in locations]), min([lon for _, lat, lon in locations])]
-            ne = [max([lat for _, lat, lon in locations]), max([lon for _, lat, lon in locations])]
-            m.fit_bounds([sw, ne], padding=(20, 20))
+            # Fit bounds to show entire route
+            m.fit_bounds(routes, padding=(20, 20))
         
-        # Convert to HTML string
         return m._repr_html_()
         
     except ImportError:
-        return """
-        <div style="padding: 50px; text-align: center; color: #666;">
-            <h3>Interactive Map</h3>
-            <p>Install folium for interactive maps:<br>
-            <code>pip install folium</code></p>
-        </div>
-        """
+        return "<div>Install folium for interactive maps</div>"
 
 def extract_locations_and_routes_from_conversation(message, locations_mentioned):
     """Extract locations and potential routes from current message and conversation context"""
@@ -498,16 +640,17 @@ def extract_locations_and_routes_from_conversation(message, locations_mentioned)
         if location_key in coords_db:
             lat, lon = coords_db[location_key]
             location_coords.append((location, lat, lon))
+        else:
+            print(f"DEBUG: Location '{location}' not found in coordinates database")
     
     # Detect route patterns
     routes = []
     message_lower = message.lower()
     
-    route_patterns = ["from", "to", "drive", "route", "road trip", "journey", "travel"]
+    route_patterns = ["from", "to", "drive", "route", "road trip", "journey", "travel", "start in", "then go", "then"]
     
     if any(pattern in message_lower for pattern in route_patterns) and len(location_coords) >= 2:
-        if len(location_coords) >= 2:
-            routes.append(location_coords)
+        routes.append(location_coords)
     
     return location_coords, routes
 
@@ -516,8 +659,13 @@ def extract_locations_and_routes_from_conversation(message, locations_mentioned)
 def intelligent_weather_chat(message, history):
     """Comprehensive chat with weather + daylight + driving data - STABILIZED VERSION"""
     try:
+        # MAKE SURE THESE VARIABLES ARE INITIALIZED AT THE TOP
         locations = extract_locations_from_text(message)
         date = extract_date_from_text(message)
+        route_geometry = []
+        location_coords = []  # ← ADD THIS LINE
+
+        print(f"DEBUG: Extracted locations: {locations}")
         
         # Determine what data to fetch based on the user's question
         get_weather = should_get_weather_data(message)
@@ -557,7 +705,12 @@ def intelligent_weather_chat(message, history):
         # Fetch driving data for 2+ locations
         if get_driving and len(locations) >= 2:
             try:
+                # GET LOCATION COORDINATES FIRST
+                location_coords, _ = extract_locations_and_routes_from_conversation(message, locations)
+                print(f"DEBUG: location_coords for route: {location_coords}")
+                
                 if len(locations) == 2:
+                    print(f"DEBUG: About to call driving MCP for {locations}")
                     driving_result = call_mcp_server(
                         DRIVING_MCP_URL, 
                         "get_driving_distance", 
@@ -568,17 +721,77 @@ def intelligent_weather_chat(message, history):
                     )
                     if "content" in driving_result:
                         driving_data[f"{locations[0]} → {locations[1]}"] = format_response(driving_result, "driving")
+                        # Extract route geometry
+                        route_geometry = extract_route_geometry_from_mcp(driving_result, location_coords)
+                        print(f"DEBUG: Final route_geometry: {len(route_geometry)} points")
+                    else:
+                        print(f"DEBUG: No content in driving result: {driving_result}")
                 
-                elif len(locations) <= 4:  # Reduced from 5
-                    driving_result = call_mcp_server(
-                        DRIVING_MCP_URL,
-                        "plan_road_trip",
-                        {"locations": locations[:4]}
-                    )
-                    if "content" in driving_result:
-                        driving_data["Road Trip Plan"] = format_response(driving_result, "driving")
+                elif len(locations) >= 3:
+                    # ENHANCED: Get wiggly routes for 3+ locations by creating segments
+                    print(f"DEBUG: Multi-location route with {len(locations)} stops")
+                    all_route_points = []
+                    driving_segments = []
+                    
+                    # Create route segments between consecutive locations
+                    for i in range(len(locations) - 1):
+                        from_loc = locations[i]
+                        to_loc = locations[i + 1]
+                        
+                        print(f"DEBUG: Getting segment {from_loc} → {to_loc}")
+                        
+                        driving_result = call_mcp_server(
+                            DRIVING_MCP_URL, 
+                            "get_driving_distance", 
+                            {
+                                "from_location": from_loc,
+                                "to_location": to_loc
+                            }
+                        )
+                        
+                        if "content" in driving_result:
+                            segment_info = format_response(driving_result, "driving")
+                            driving_segments.append(f"**{from_loc} → {to_loc}:** {segment_info}")
+                            
+                            # Get wiggly route for this segment
+                            if i < len(location_coords) - 1:
+                                segment_coords = [location_coords[i], location_coords[i + 1]]
+                                segment_route = extract_route_geometry_from_mcp(driving_result, segment_coords)
+                                
+                                if len(segment_route) > 2:  # We got actual route data
+                                    print(f"DEBUG: Segment {i+1} has {len(segment_route)} route points")
+                                    all_route_points.extend(segment_route)
+                                else:
+                                    print(f"DEBUG: Segment {i+1} using straight line fallback")
+                                    # Add straight line for this segment
+                                    all_route_points.extend([
+                                        [location_coords[i][1], location_coords[i][2]],
+                                        [location_coords[i+1][1], location_coords[i+1][2]]
+                                    ])
+                    
+                    # Combine all segments into one route
+                    if all_route_points:
+                        route_geometry = all_route_points
+                        print(f"DEBUG: Combined route has {len(route_geometry)} total points")
+                    
+                    # Combine driving info
+                    if driving_segments:
+                        driving_data["Multi-Stop Route"] = "\n\n".join(driving_segments)
+                    else:
+                        # Fallback to road trip planner
+                        driving_result = call_mcp_server(
+                            DRIVING_MCP_URL,
+                            "plan_road_trip",
+                            {"locations": locations[:4]}
+                        )
+                        if "content" in driving_result:
+                            driving_data["Road Trip Plan"] = format_response(driving_result, "driving")
+                            # Use straight lines as last resort
+                            if location_coords:
+                                route_geometry = [[lat, lon] for _, lat, lon in location_coords]
             except Exception as e:
                 print(f"Driving data error: {e}")
+                route_geometry = []
         
         # SIMPLIFIED SYSTEM PROMPT - much shorter to prevent token issues
         system_prompt = """You are a helpful Scottish adventure assistant. 
@@ -686,13 +899,14 @@ Give a helpful, natural response under 200 words focusing on their Scottish adve
         
         # ========== MAP UPDATE LOGIC ==========
         # Extract locations and routes for map
-        location_coords, routes = extract_locations_and_routes_from_conversation(message, locations)
+        if not location_coords and locations:
+            location_coords, routes = extract_locations_and_routes_from_conversation(message, locations)
         
         # Create updated map HTML
         if location_coords:
             updated_map_html = create_map_html(
                 locations=location_coords,
-                routes=routes,
+                routes=route_geometry,
                 center_lat=location_coords[0][1] if location_coords else 56.8,
                 center_lon=location_coords[0][2] if location_coords else -4.2,
                 zoom=8 if len(location_coords) <= 2 else 7
@@ -714,6 +928,7 @@ Give a helpful, natural response under 200 words focusing on their Scottish adve
         bot_response = "I'm having technical difficulties. Please try a simpler question like 'weather in Edinburgh' or let me know specific Scottish locations you're interested in!"
         # Default map for error case
         updated_map_html = create_map_html()
+        location_coords = []  # ← ADD THIS LINE
     
     history.append([message, bot_response])
     return history, "", updated_map_html
@@ -721,11 +936,11 @@ Give a helpful, natural response under 200 words focusing on their Scottish adve
 # Create the ultimate Scottish adventure planning interface
 with gr.Blocks(title="🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner", theme=gr.themes.Soft()) as app:
     gr.Markdown("# 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Planner")
-    gr.Markdown("**Your complete Scottish adventure assistant!** Get weather, photography timing, and driving directions.")
+    gr.Markdown("**Your complete Scottish adventure assistant!** Get weather, driving distances, recommendations.")
     
     with gr.Row():
         with gr.Column(scale=3):
-            chatbot = gr.Chatbot(height=400)
+            chatbot = gr.Chatbot(height=400, type='tuples')
             msg = gr.Textbox(
                 label="Plan your Scottish adventure!",
                 placeholder="Try: 'Road trip from Edinburgh to Skye' or 'Photography spots near Fort William'",
