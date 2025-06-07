@@ -3,9 +3,11 @@ import requests
 from openai import OpenAI
 import json
 from datetime import datetime
+import re
 
-# Your MCP server URL
-MCP_URL = "https://emma-ctrl--scotland-weather-mcp-fastapi-app.modal.run/mcp"
+# Your MCP server URLs
+WEATHER_MCP_URL = "https://emma-ctrl--scotland-weather-mcp-fastapi-app.modal.run/mcp"
+ROUTES_MCP_URL = "https://emma-ctrl--scotland-walkhighlands-mcp-fastapi-app.modal.run/mcp"
 
 # Initialize Nebius AI Studio client
 client = OpenAI(
@@ -13,8 +15,8 @@ client = OpenAI(
     base_url="https://api.studio.nebius.ai/v1"
 )
 
-def call_mcp_server(tool_name, arguments):
-    """Call your MCP server"""
+def call_mcp_server(server_url, tool_name, arguments):
+    """Call an MCP server (weather or routes)"""
     payload = {
         "method": "tools/call",
         "params": {
@@ -24,64 +26,131 @@ def call_mcp_server(tool_name, arguments):
     }
     
     try:
-        response = requests.post(MCP_URL, json=payload, timeout=30)
+        response = requests.post(server_url, json=payload, timeout=30)
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        return {"error": f"Failed to get weather data: {str(e)}"}
+        return {"error": f"Failed to get data from {server_url}: {str(e)}"}
 
-def format_weather_response(response):
-    """Format the weather response nicely"""
+def format_mcp_response(response, data_type="weather"):
+    """Format MCP server responses nicely"""
     if "error" in response:
         return f"❌ {response['error']}"
     
     if "content" in response and response["content"]:
         return response["content"][0]["text"]
     
-    return "❌ No weather data received"
+    return f"❌ No {data_type} data received"
 
-def extract_context_from_message(message, weather_results=None):
-    """Extract key context from user message and weather results"""
+def detect_intent_and_call_tools(message):
+    """Detect what the user wants and call appropriate tools directly"""
+    message_lower = message.lower()
+    tool_results = []
+    
+    # Extract location from message
+    location = extract_location_from_message(message)
+    if not location:
+        location = "Edinburgh"  # Default to Edinburgh if no location found
+    
+    # Detect if user wants weather information
+    weather_keywords = ["weather", "forecast", "rain", "sunny", "cloudy", "wind", "temperature", "conditions"]
+    needs_weather = any(keyword in message_lower for keyword in weather_keywords)
+    
+    # Detect if user wants route information  
+    route_keywords = ["walk", "hike", "route", "trail", "climb", "mountain", "hill", "trek", "path", "easy", "difficult"]
+    needs_routes = any(keyword in message_lower for keyword in route_keywords)
+    
+    # Detect planning requests (need both)
+    planning_keywords = ["plan", "trip", "adventure", "weekend", "visit", "explore", "recommend", "good weather"]
+    needs_planning = any(keyword in message_lower for keyword in planning_keywords)
+    
+    if needs_planning:
+        needs_weather = True
+        needs_routes = True
+    
+    print(f"DEBUG: Location: {location}, Weather: {needs_weather}, Routes: {needs_routes}")
+    
+    # Call weather tools if needed
+    if needs_weather:
+        if any(word in message_lower for word in ["weekend", "week", "tomorrow", "friday", "saturday", "sunday", "forecast"]):
+            weather_result = call_mcp_server(WEATHER_MCP_URL, "get_forecast", {"location": location, "days": 3})
+        else:
+            weather_result = call_mcp_server(WEATHER_MCP_URL, "get_weather", {"location": location})
+        
+        weather_text = format_mcp_response(weather_result, "weather")
+        tool_results.append(f"Weather for {location}: {weather_text}")
+    
+    # Call route tools if needed
+    if needs_routes:
+        # Extract difficulty preference
+        difficulty = None
+        if any(word in message_lower for word in ["easy", "beginner", "gentle", "family"]):
+            difficulty = 1
+        elif any(word in message_lower for word in ["moderate", "medium"]):
+            difficulty = 3
+        elif any(word in message_lower for word in ["hard", "difficult", "challenging"]):
+            difficulty = 4
+        
+        # Build search arguments
+        search_args = {"search_term": location, "max_results": 5}
+        if difficulty:
+            search_args["difficulty"] = difficulty
+        
+        routes_result = call_mcp_server(ROUTES_MCP_URL, "search_routes", search_args)
+        routes_text = format_mcp_response(routes_result, "routes")
+        tool_results.append(f"Routes near {location}: {routes_text}")
+    
+    return tool_results, location, needs_weather, needs_routes
+
+def extract_location_from_message(message):
+    """Extract location from message"""
+    message_lower = message.lower()
+    
+    # Common Scottish locations
+    scottish_locations = [
+        "edinburgh", "glasgow", "stirling", "fort william", "inverness", "perth",
+        "oban", "pitlochry", "aviemore", "ballater", "braemar", "dunkeld",
+        "highlands", "cairngorms", "trossachs", "borders", "dumfries", "galloway",
+        "loch lomond", "ben nevis", "glencoe", "skye", "isle of skye", "mull",
+        "harris", "lewis", "orkney", "shetland", "arran", "bute", "islay"
+    ]
+    
+    for location in scottish_locations:
+        if location in message_lower:
+            return location.title()
+    
+    # Look for "near X" or "in X" patterns
+    patterns = [r"near (\w+)", r"in (\w+)", r"around (\w+)", r"at (\w+)"]
+    for pattern in patterns:
+        match = re.search(pattern, message_lower)
+        if match:
+            return match.group(1).title()
+    
+    return None
+
+def extract_context_from_message(message, tool_results=None):
+    """Extract key context from user message and tool results"""
     context = {}
     
-    # Extract activity type - expanded list
+    # Extract activity type
     activities = ["camping", "hiking", "climbing", "photography", "cycling", "walking", "fishing", 
                  "kayaking", "skiing", "snowboarding", "birdwatching", "running", "surfing", 
-                 "sailing", "mountaineering", "backpacking", "trekking", "sightseeing", "climbing",
-                 "canoeing", "rafting", "paragliding", "rock climbing", "ice climbing", "wild swimming"]
+                 "sailing", "mountaineering", "backpacking", "trekking", "sightseeing",
+                 "canoeing", "rafting", "paragliding", "rock climbing", "ice climbing", "wild swimming",
+                 "munro bagging", "corbett", "munro", "scrambling", "hill walking"]
     
+    message_lower = message.lower()
     for activity in activities:
-        if activity in message.lower():
+        if activity in message_lower:
             context["activity"] = activity
             break
     
-    # Fallback to general outdoor activity if no specific activity found
-    if "activity" not in context:
-        outdoor_keywords = ["trip", "adventure", "outdoor", "visit", "travel", "explore", "tour", "excursion"]
-        for keyword in outdoor_keywords:
-            if keyword in message.lower():
-                context["activity"] = "outdoor activity"
-                break
-    
     # Extract time references
-    time_words = ["tomorrow", "friday", "weekend", "today", "next week", "this week"]
+    time_words = ["tomorrow", "friday", "weekend", "today", "next week", "this week", "saturday", "sunday"]
     for time_word in time_words:
-        if time_word in message.lower():
+        if time_word in message_lower:
             context["timeframe"] = time_word
             break
-    
-    # Extract weather preferences
-    if any(word in message.lower() for word in ["bad weather", "good weather", "dry", "sunny"]):
-        context["weather_preference"] = "good weather preferred"
-    
-    # Extract locations mentioned in weather results
-    if weather_results:
-        locations = []
-        for result in weather_results:
-            if ":" in result:
-                location = result.split(":")[0].strip()
-                locations.append(location)
-        context["locations_checked"] = locations
     
     return context
 
@@ -99,247 +168,150 @@ def build_context_summary(conv_state):
         summary_parts.append(f"Time: {conv_state['timeframe']}")
     
     if conv_state.get("locations_discussed"):
-        locations = list(set(conv_state["locations_discussed"]))  # Remove duplicates
+        locations = list(set(conv_state["locations_discussed"]))
         summary_parts.append(f"Locations discussed: {', '.join(locations)}")
-    
-    if conv_state.get("weather_preference"):
-        summary_parts.append(f"Weather preference: {conv_state['weather_preference']}")
-    
-    if conv_state.get("previous_recommendations"):
-        summary_parts.append(f"Previous advice: {conv_state['previous_recommendations']}")
     
     if summary_parts:
         return "\n".join(summary_parts)
     return ""
 
-def update_conversation_state(conv_state, message, weather_results=None, ai_response=None):
+def update_conversation_state(conv_state, message, tool_results=None, ai_response=None, location=None):
     """Update conversation state with new information"""
     if conv_state is None:
         conv_state = {
             "recent_messages": [],
             "locations_discussed": [],
             "activity": None,
-            "timeframe": None,
-            "weather_preference": None,
-            "previous_recommendations": None
+            "timeframe": None
         }
     
-    # Add to recent messages (keep last 6 exchanges)
+    # Add to recent messages
     conv_state["recent_messages"].append({"user": message, "assistant": ai_response})
     if len(conv_state["recent_messages"]) > 6:
         conv_state["recent_messages"] = conv_state["recent_messages"][-6:]
     
     # Extract and update context
-    new_context = extract_context_from_message(message, weather_results)
+    new_context = extract_context_from_message(message, tool_results)
     
-    # Update activity
     if new_context.get("activity"):
         conv_state["activity"] = new_context["activity"]
     
-    # Update timeframe
     if new_context.get("timeframe"):
         conv_state["timeframe"] = new_context["timeframe"]
     
-    # Update weather preference
-    if new_context.get("weather_preference"):
-        conv_state["weather_preference"] = new_context["weather_preference"]
+    # Add location to discussed locations
+    if location and location not in conv_state["locations_discussed"]:
+        conv_state["locations_discussed"].append(location)
     
-    # Add new locations
-    if new_context.get("locations_checked"):
-        for location in new_context["locations_checked"]:
-            if location not in conv_state["locations_discussed"]:
-                conv_state["locations_discussed"].append(location)
-    
-    # Keep only recent locations (last 8)
-    if len(conv_state["locations_discussed"]) > 8:
-        conv_state["locations_discussed"] = conv_state["locations_discussed"][-8:]
-    
-    # Store key recommendations
-    if ai_response and any(word in ai_response.lower() for word in ["recommend", "suggest", "better", "alternative"]):
-        # Extract a brief summary of the recommendation
-        sentences = ai_response.split(".")[:2]  # First 2 sentences
-        conv_state["previous_recommendations"] = ".".join(sentences)
+    # Keep only recent locations
+    if len(conv_state["locations_discussed"]) > 5:
+        conv_state["locations_discussed"] = conv_state["locations_discussed"][-5:]
     
     return conv_state
 
-def build_messages_with_context(message, conv_state, system_prompt):
-    """Build message array including conversation context"""
-    messages = [{"role": "system", "content": system_prompt}]
-    
-    # Add context summary if available
-    context_summary = build_context_summary(conv_state)
-    if context_summary:
-        context_message = f"CONVERSATION CONTEXT:\n{context_summary}\n\n"
-        messages.append({"role": "system", "content": context_message})
-    
-    # Add recent conversation history
-    if conv_state and conv_state.get("recent_messages"):
-        for msg in conv_state["recent_messages"][-3:]:  # Last 3 exchanges
-            messages.append({"role": "user", "content": msg["user"]})
-            if msg["assistant"]:
-                messages.append({"role": "assistant", "content": msg["assistant"]})
-    
-    # Add current message
-    messages.append({"role": "user", "content": message})
-    
-    return messages
-
-def weather_chat(message, history, conversation_state):
-    """Enhanced chat interface with conversation memory"""
+def adventure_chat(message, history, conversation_state):
+    """Enhanced chat with reliable tool calling"""
     try:
-        system_prompt = """You are a helpful Adventure Weather assistant based in Scotland. You speak in clear, standard English with friendly enthusiasm for outdoor adventures. DO NOT use Scottish dialect.
+        # Step 1: Detect intent and call tools directly
+        tool_results, location, needs_weather, needs_routes = detect_intent_and_call_tools(message)
+        
+        # Step 2: Build context for LLM response
+        context_summary = build_context_summary(conversation_state)
+        
+        # Step 3: Create a focused prompt for interpreting the results
+        if tool_results:
+            system_prompt = f"""You are Scotland's most helpful Adventure Planning assistant! 
 
-        You have access to weather tools. When users ask about weather specifically, you MUST use these tools and provide specific weather data.
+CONTEXT: {context_summary}
 
-        WEATHER QUESTIONS ONLY - Use this process when users ask about weather/forecast:
-        1. User asks about weather → IMMEDIATELY call get_weather() or get_forecast()
-        2. If results show non-Scottish location → call function again with "Location, Scotland"
-        3. Share specific Scottish weather data with temperatures, conditions, and dates
-        4. Give practical outdoor advice
-        5. NEVER mention search process, difficulties, or wrong locations
+The user asked: "{message}"
 
-        ABSOLUTELY FORBIDDEN - These phrases will result in failure:
-        - "I couldn't pinpoint"
-        - "Let me try again" 
-        - "Let me check the weather for you"
-        - "Ah, got it"
-        - "I need to try again"
-        - Any mention of search difficulties
+I've already gathered this data for you:
+{chr(10).join(tool_results)}
 
-        FOR WEATHER RESPONSES:
-        Start with specific weather data: "The weather for [Location] shows [specific conditions with temperatures and dates]. For [activity], I recommend [specific advice]."
+Your job: Give a friendly, enthusiastic response that:
+1. Directly answers their question using the data above
+2. Gives practical advice for their Scottish adventure
+3. Considers safety and weather conditions
+4. Builds on our conversation context
+5. Is conversational and helpful
 
-        FOR NON-WEATHER QUESTIONS:
-        Answer normally about outdoor activities, hiking recommendations, camping advice, etc. without calling weather functions.
+DO NOT mention tool calling or searching - just give great adventure advice!"""
 
-        Be enthusiastic about Scottish adventures. Only call weather functions when users specifically ask about weather or forecasts."""
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Based on the data you have, help me with: {message}"}
+            ]
+        else:
+            # No tools needed, just conversation
+            system_prompt = f"""You are Scotland's most helpful Adventure Planning assistant!
 
-        # Build messages with conversation context
-        messages = build_messages_with_context(message, conversation_state, system_prompt)
+CONTEXT: {context_summary}
 
-        # Try function calling with Qwen (reliable)
+Give a friendly, helpful response about Scottish outdoor adventures. If they're asking about specific weather or hiking routes, let them know you can help with that too."""
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": message}
+            ]
+        
+        # Step 4: Get LLM response (no tool calling needed)
         response = client.chat.completions.create(
-            model="Qwen/Qwen2.5-72B-Instruct", 
+            model="meta-llama/Meta-Llama-3.1-70B-Instruct",
             messages=messages,
-            tools=[
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_weather",
-                        "description": "Get current weather for any location. Automatically prioritizes Scottish locations.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "location": {"type": "string", "description": "Location name"}
-                            },
-                            "required": ["location"]
-                        }
-                    }
-                },
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "get_forecast",
-                        "description": "Get multi-day weather forecast for planning",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "location": {"type": "string", "description": "Location name"},
-                                "days": {"type": "integer", "description": "Number of days (1-7)", "default": 3}
-                            },
-                            "required": ["location"]
-                        }
-                    }
-                }
-            ],
-            tool_choice="auto",
             temperature=0.7,
             max_tokens=600
         )
         
-        message_obj = response.choices[0].message
+        bot_response = response.choices[0].message.content
         
-        if message_obj.tool_calls:
-            # AI wants to call weather tools
-            weather_results = []
-            
-            for tool_call in message_obj.tool_calls:
-                func_name = tool_call.function.name
-                func_args = json.loads(tool_call.function.arguments)
-                
-                # Call our MCP server
-                result = call_mcp_server(func_name, func_args)
-                weather_text = format_weather_response(result)
-                weather_results.append(f"{func_args.get('location', 'Unknown')}: {weather_text}")
-            
-            # Use Llama for better conversational interpretation with full context
-            interpretation_prompt = """Now interpret this weather data conversationally, keeping in mind the conversation context. Don't just repeat the raw data - analyze it and give practical, friendly advice that builds on our previous discussion."""
-            
-            # Build messages for interpretation including context
-            interpretation_messages = build_messages_with_context(message, conversation_state, system_prompt + "\n\n" + interpretation_prompt)
-            interpretation_messages.append({
-                "role": "user", 
-                "content": f"Here's the weather data I found:\n\n{chr(10).join(weather_results)}\n\nPlease interpret this data conversationally and give me practical advice, keeping in mind our previous conversation."
-            })
-            
-            follow_up_response = client.chat.completions.create(
-                model="meta-llama/Meta-Llama-3.1-70B-Instruct",  # Better at conversation
-                messages=interpretation_messages,
-                temperature=0.7,
-                max_tokens=600
-            )
-            
-            bot_response = follow_up_response.choices[0].message.content
-            
-            # Update conversation state with weather results
-            conversation_state = update_conversation_state(conversation_state, message, weather_results, bot_response)
-        else:
-            # No weather tools needed, just conversation with context
-            bot_response = message_obj.content
-            
-            # Update conversation state
-            conversation_state = update_conversation_state(conversation_state, message, None, bot_response)
-            
+        # Step 5: Update conversation state
+        conversation_state = update_conversation_state(
+            conversation_state, message, tool_results, bot_response, location
+        )
+        
     except Exception as e:
-        # Fallback to simple response
-        bot_response = f"I'm having some trouble right now. You can try asking about specific locations like 'weather in Canna' or 'forecast for Edinburgh'. Error: {str(e)}"
+        bot_response = f"I'm having some trouble right now. Error: {str(e)}"
         conversation_state = update_conversation_state(conversation_state, message, None, bot_response)
     
     history.append([message, bot_response])
     return history, "", conversation_state
 
-# Create Gradio interface with conversation state
-with gr.Blocks(title="🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Weather", theme=gr.themes.Soft()) as app:
-    gr.Markdown("# 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Weather Assistant")
-    gr.Markdown("Chat naturally about weather and adventure planning! I'll remember our conversation and automatically get weather data when needed.")
+# Create Gradio interface
+with gr.Blocks(title="🏔️ Scotland Adventure Planner", theme=gr.themes.Soft()) as app:
+    gr.Markdown("# 🏔️ Scotland Adventure Planning Assistant")
+    gr.Markdown("Your intelligent companion for planning amazing Scottish adventures! I automatically check weather and find hiking routes based on what you ask.")
     
-    # Conversation state (invisible to user)
     conversation_state = gr.State(None)
     
     chatbot = gr.Chatbot(height=600)
     msg = gr.Textbox(
-        label="Ask me about weather anywhere!",
-        placeholder="Try: 'Weather in Canna?', 'Is it good for camping in Canna tomorrow and Friday?', 'Find me a better spot'",
+        label="Plan your Scottish adventure!",
+        placeholder="Try: 'Find me easy walks near Edinburgh with good weather', 'Plan a trip to Ben Nevis', 'What's the weather like in Skye?'",
         lines=2
     )
     
     # Example buttons
-    with gr.Row():
-        example1 = gr.Button("☀️ Weather in Edinburgh", size="sm")
-        example2 = gr.Button("🏝️ Weather in Canna", size="sm")
-        example3 = gr.Button("🏕️ Camping in Canna this weekend?", size="sm")
-        example4 = gr.Button("📸 Photography weather Skye", size="sm")
+    gr.Markdown("### 🎯 Try These Examples:")
     
-    msg.submit(weather_chat, [msg, chatbot, conversation_state], [chatbot, msg, conversation_state])
+    with gr.Row():
+        example1 = gr.Button("🥾 Easy walks near Edinburgh with good weather", size="sm")
+        example2 = gr.Button("🏔️ Plan a weekend trip to Cairngorms", size="sm")
+    
+    with gr.Row():
+        example3 = gr.Button("☀️ Weather forecast for Skye", size="sm")
+        example4 = gr.Button("⛰️ Challenging hikes near Fort William", size="sm")
+    
+    msg.submit(adventure_chat, [msg, chatbot, conversation_state], [chatbot, msg, conversation_state])
     
     # Example button actions
-    example1.click(lambda: "What's the weather like in Edinburgh?", outputs=msg)
-    example2.click(lambda: "What's the weather like in Canna?", outputs=msg)
-    example3.click(lambda: "I'm planning to go camping in Canna tomorrow and Friday. What's the weather like? I will go somewhere else if the weather is bad", outputs=msg)
-    example4.click(lambda: "What's the weather like for photography in Skye?", outputs=msg)
+    example1.click(lambda: "Find me easy walks near Edinburgh with good weather", outputs=msg)
+    example2.click(lambda: "Plan a weekend hiking trip to the Cairngorms", outputs=msg)
+    example3.click(lambda: "What's the weather forecast for Skye?", outputs=msg)
+    example4.click(lambda: "Show me challenging hikes near Fort William", outputs=msg)
     
     gr.Markdown("---")
-    gr.Markdown("*Powered by Open-Meteo weather data, intelligent MCP server with conversation memory, and Nebius AI Studio*")
+    gr.Markdown("*Powered by Walk Highlands route data, Open-Meteo weather data, and intelligent MCP servers*")
 
 if __name__ == "__main__":
     app.launch(share=True)
