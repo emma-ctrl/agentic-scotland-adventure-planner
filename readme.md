@@ -2,6 +2,10 @@
 
 ## agent-demo-track
 
+
+https://github.com/user-attachments/assets/5adf9e57-7087-4523-9198-8134f13cff7c
+
+
 A comprehensive Scottish adventure planning app that combines three custom MCP (Model Context Protocol) servers with an intelligent Gradio interface. Get weather forecasts, driving routes, daylight times, and AI-powered recommendations for your Scottish adventures.
 
 ## 🎯 Features
