@@ -1,28 +1,45 @@
 # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Weather Planner
 
-A Scottish adventure planning app combining a custom MCP (Model Context Protocol) server with an intelligent Gradio interface for weather-based trip planning.
+## agent-demo-track
+
+A comprehensive Scottish adventure planning app that combines three custom MCP (Model Context Protocol) servers with an intelligent Gradio interface. Get weather forecasts, driving routes, daylight times, and AI-powered recommendations for your Scottish adventures.
 
 ## 🎯 Features
 
-- **Real-time Scottish weather data** - Current conditions and 7-day forecasts
-- **Adventure-focused recommendations** - Activity-specific weather advice
-- **Location comparison** - Compare weather between multiple Scottish locations
-- **Intelligent geographic filtering** - Automatically finds Scottish locations (not US namesakes!)
-- **Interactive chat interface** - Natural language weather queries
-- **Custom MCP server** - RESTful API following MCP protocol standards
+### 🌦️ Weather Intelligence
+- **Real-time weather data** - Current conditions and 7-day forecasts for any Scottish location
+- **Adventure-focused recommendations** - Activity-specific advice for hiking, photography, camping
+- **Geographic disambiguation** - Automatically finds Scottish locations (not US namesakes!)
+- **Weather safety alerts** - Wind warnings, precipitation alerts, visibility conditions
+
+### 🌅 Daylight Planning  
+- **Sunrise/sunset times** - Perfect for photography and outdoor activity planning
+- **Golden hour calculations** - Optimal lighting times for photographers
+- **Seasonal daylight tracking** - Essential for Highland adventures where daylight varies dramatically
+
+### 🚗 Route Planning
+- **Driving distances and times** - Between any Scottish locations
+- **Multi-stop road trip planning** - Optimized routes with Highland driving considerations
+- **Interactive route visualization** - Real driving routes displayed on maps
+- **Scottish driving tips** - Single-track roads, ferry times, fuel stops
+
+### 🤖 AI Chat Interface
+- **Natural language queries** - Ask questions like "Road trip from Edinburgh to Skye"
+- **Intelligent data synthesis** - Combines weather, driving, and daylight data
+- **Adventure recommendations** - Personalized suggestions based on conditions
+- **Interactive maps** - Visual route and location display
 
 ## 🏗️ Architecture
 
-### MCP Weather Server
-- **Technology**: FastAPI + Modal (serverless deployment)
-- **Data Source**: Open-Meteo API (free, no API keys required)
-- **Geographic Focus**: Scotland/UK with intelligent location disambiguation
-- **Protocol**: Model Context Protocol for AI assistant integration
+### Three Custom MCP Servers
+1. **Weather MCP** (`scotland-weather-mcp`) - Open-Meteo API integration
+2. **Daylight MCP** (`scotland-daylight-mcp`) - Sunrise-Sunset API integration  
+3. **Driving MCP** (`scottish-driving-mcp`) - OpenRouteService integration
 
 ### Gradio Frontend
-- **Interface**: Multi-tab web application
-- **Features**: Current weather, forecasts, location comparison, chat
-- **Intelligence**: Activity-specific recommendations and trip planning advice
+- **Multi-functional interface** - Chat, quick examples, interactive maps
+- **Real-time data integration** - Fetches from all three MCP servers
+- **AI-powered responses** - Uses Nebius AI Studio for intelligent synthesis
 
 ## 🚀 Quick Start
 
@@ -30,25 +47,52 @@ A Scottish adventure planning app combining a custom MCP (Model Context Protocol
 ```bash
 Python 3.8+
 Modal account (for MCP server deployment)
+OpenRouteService API key (free tier: 2000 requests/day)
+Nebius AI Studio API key
 ```
 
-### Setup MCP Server
+### 1. Deploy MCP Servers
+
+#### Weather Server
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Clone and setup
+git clone <repository>
+cd scotland-weather-adventure
 
-# Test locally
-python main.py
-
-# Deploy to Modal
-modal setup  # First time only
-modal deploy deploy.py
+# Deploy weather MCP
+modal deploy weather_server.py
+# Creates: https://your-username--scotland-weather-mcp-fastapi-app.modal.run
 ```
 
-### Setup Gradio App
+#### Daylight Server  
 ```bash
-cd chatbot
-pip install -r requirements.txt
+# Deploy daylight MCP
+modal deploy daylight_server.py
+# Creates: https://your-username--scotland-daylight-mcp-fastapi-app.modal.run
+```
+
+#### Driving Server
+```bash
+# Get free API key from: https://openrouteservice.org/dev/#/signup
+modal secret create openrouteservice OPENROUTESERVICE_API_KEY=your_key_here
+
+# Deploy driving MCP
+modal deploy driving_server.py
+# Creates: https://your-username--scottish-driving-mcp-fastapi-app.modal.run
+```
+
+### 2. Setup Gradio Frontend
+```bash
+# Update MCP server URLs in app.py
+WEATHER_MCP_URL = "https://your-username--scotland-weather-mcp-fastapi-app.modal.run/mcp"
+DAYLIGHT_MCP_URL = "https://your-username--scotland-daylight-mcp-fastapi-app.modal.run/mcp"  
+DRIVING_MCP_URL = "https://your-username--scottish-driving-mcp-fastapi-app.modal.run/mcp"
+
+# Add your Nebius AI Studio API key
+client = OpenAI(api_key="your_nebius_key_here", base_url="https://api.studio.nebius.ai/v1")
+
+# Install dependencies and run
+pip install gradio requests openai folium
 python app.py
 ```
 
@@ -56,22 +100,20 @@ python app.py
 
 ```
 scotland-weather-adventure/
-├── main.py              # Local MCP server testing
-├── deploy.py            # Modal deployment configuration  
-├── requirements.txt     # MCP server dependencies
-├── chatbot/
-│   ├── app.py          # Gradio web interface
-│   └── requirements.txt # Chatbot dependencies
-└── README.md           # This file
+├── README.md                    # This file
+├── app.py                      # Main Gradio web interface
+├── weather_server.py           # Weather MCP server (Modal deployment)
+├── daylight_server.py          # Daylight MCP server (Modal deployment)  
+├── driving_server.py           # Driving MCP server (Modal deployment)
+└── requirements.txt            # Dependencies
 ```
 
-## 🛠️ MCP Server API
+## 🛠️ MCP Server APIs
 
-### Available Tools
+### Weather MCP Tools
 
 #### `get_weather`
-Get current weather conditions for a Scottish location.
-
+Get current weather conditions for any Scottish location.
 ```json
 {
   "method": "tools/call",
@@ -82,100 +124,184 @@ Get current weather conditions for a Scottish location.
 }
 ```
 
-#### `get_forecast` 
-Get multi-day weather forecast (1-7 days) with adventure planning insights.
-
+#### `get_forecast`
+Get 1-7 day weather forecast with adventure planning insights.
 ```json
 {
-  "method": "tools/call",
+  "method": "tools/call", 
   "params": {
-    "name": "get_forecast", 
+    "name": "get_forecast",
     "arguments": {"location": "Fort William", "days": 5}
   }
 }
 ```
 
-### Geographic Intelligence
-The server automatically handles location disambiguation:
-- **"Dunfermline"** → Finds Dunfermline, Scotland (not Illinois)
-- **"Perth"** → Finds Perth, Scotland (not Australia)  
-- **"Glencoe"** → Searches for Scottish Highland locations
+### Daylight MCP Tools
+
+#### `get_daylight_times`
+Get sunrise, sunset, and golden hour times for photography planning.
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_daylight_times", 
+    "arguments": {"location": "Glencoe", "date": "2024-07-15"}
+  }
+}
+```
+
+### Driving MCP Tools
+
+#### `get_driving_distance`
+Calculate driving distance and time between locations.
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "get_driving_distance",
+    "arguments": {
+      "from_location": "Edinburgh", 
+      "to_location": "Isle of Skye"
+    }
+  }
+}
+```
+
+#### `plan_road_trip`
+Plan multi-stop road trips with optimized Scottish routes.
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "plan_road_trip",
+    "arguments": {
+      "locations": ["Glasgow", "Fort William", "Isle of Skye", "Inverness"]
+    }
+  }
+}
+```
 
 ## 🎮 Gradio Interface Features
 
-### 📍 Current Weather Tab
-- Real-time weather conditions
-- Activity-specific advice (hiking, photography, etc.)
-- Wind warnings for outdoor activities
+### 💬 Intelligent Chat
+- Natural language adventure planning
+- Combines weather, driving, and daylight data automatically
+- Scottish location recognition and disambiguation
+- Activity-specific recommendations
 
-### 📅 Forecast Tab  
-- 1-7 day weather forecasts
-- Trip planning recommendations
-- Good weather day counting
+### 📍 Interactive Maps
+- Real driving route visualization using OpenRouteService
+- Multiple location support with markers
+- Route geometry display (not just straight lines!)
+- Automatic map centering and zoom
 
-### ⚖️ Compare Tab
-- Side-by-side location comparison
-- Intelligent recommendations based on activity type
-- Best location suggestions
+### 🎯 Quick Examples
+Pre-built example queries:
+- "☀️ Weather Edinburgh"
+- "🚗 Drive Edinburgh→Skye" 
+- "📸 Golden hour Glencoe"
+- "🗺️ Road trip Glasgow→Skye"
+- And more...
 
-### 💬 Chat Tab
-- Natural language weather queries
-- Conversational adventure planning
-- Scottish location recognition
+## 🌦️ Intelligent Features
 
-## 🌦️ Weather Features
+### Scottish Geographic Intelligence
+The system automatically handles location disambiguation:
+- **"Perth"** → Finds Perth, Scotland (not Australia)
+- **"Hamilton"** → Finds Hamilton, Scotland (not Ontario)  
+- **"Arran"** → Finds Isle of Arran, Scotland (not Ireland)
 
-### Adventure-Specific Intelligence
-- **Hiking**: Wind speed warnings, precipitation alerts, visibility conditions
-- **Photography**: Light condition assessments, clear sky recommendations  
-- **Climbing**: Wind gust warnings, rock condition considerations
-- **General Tourism**: Overall comfort and activity suitability
+### Adventure-Specific Recommendations
+- **Hiking**: Wind warnings, precipitation alerts, visibility
+- **Photography**: Golden hour times, clear sky recommendations
+- **Driving**: Highland road conditions, single-track warnings
+- **Camping**: Daylight hours, weather suitability
 
-### Scottish Weather Considerations
-- **Highland vs Lowland** conditions
-- **Coastal vs Inland** variations  
-- **Seasonal considerations** (daylight hours, temperature ranges)
-- **Activity safety alerts** (high winds, wet conditions)
+### Scottish Driving Considerations
+- Single-track Highland roads (allow extra time)
+- Ferry schedules for island destinations
+- Remote area fuel stop planning
+- Highland weather driving safety
 
-## 🚢 Deployment
+## 🚢 Deployment Options
 
-### MCP Server (Modal)
+### MCP Servers (Modal - Recommended)
 ```bash
-modal deploy deploy.py
-# Creates: https://your-username--scotland-weather-mcp-fastapi-app.modal.run
+# All three servers deploy to Modal's serverless platform
+modal deploy weather_server.py
+modal deploy daylight_server.py  
+modal deploy driving_server.py
 ```
 
-### Gradio App (Multiple Options)
+### Gradio Frontend
+- **Local Development**: `python app.py`
+- **Gradio Sharing**: Built-in public demo links (`share=True`)
+- **Production**: Deploy to Hugging Face Spaces, Modal, Railway, etc.
+
+## 🔧 Configuration
+
+### Environment Variables
 ```bash
-# Local development
-python chatbot/app.py
+# Required for driving server
+OPENROUTESERVICE_API_KEY=your_openroute_key
 
-# Gradio sharing (public demo link)  
-python chatbot/app.py  # share=True is already set
-
-# Deploy to Hugging Face Spaces, Modal, or other platforms
+# Required for AI chat  
+NEBIUS_API_KEY=your_nebius_key
 ```
 
-## 🤝 Contributing
-
-Built for the Gradio Hackathon! Contributions welcome:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes  
-4. Submit a pull request
-
-## 📄 License
-
-Open source - built for learning and Scottish adventure planning!
+### API Keys Needed
+1. **OpenRouteService** (Free: 2000 requests/day) - For driving routes
+2. **Nebius AI Studio** - For intelligent chat responses
+3. **No API keys needed** for weather (Open-Meteo) or daylight (Sunrise-Sunset API)
 
 ## 🏔️ Example Use Cases
 
-- **Weekend Trip Planning**: "Should I go to Aviemore or Cairngorms this weekend?"
-- **Activity-Specific Planning**: "Is it good weather for photography in Edinburgh?"
-- **Multi-Day Adventures**: "What's the 5-day forecast for the West Highland Way?"
-- **Safety Planning**: "Are there wind warnings for climbing in Glencoe?"
+### Weekend Trip Planning
+- **Query**: "Should I go to Aviemore or Cairngorms this weekend?"
+- **Response**: Weather comparison, driving times, daylight hours, activity recommendations
+
+### Photography Expeditions  
+- **Query**: "Golden hour photography spots near Fort William"
+- **Response**: Sunrise/sunset times, weather conditions, recommended locations
+
+### Multi-Day Adventures
+- **Query**: "5-day road trip from Edinburgh to Skye with camping"
+- **Response**: Route planning, weather forecast, camping suitability, daily recommendations
+
+### Safety Planning
+- **Query**: "Are there wind warnings for climbing in Glencoe?"
+- **Response**: Wind speed alerts, weather safety assessment, alternative suggestions
+
+## 🤝 Contributing
+
+This project was built for adventure planning and learning! Contributions welcome:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Submit a pull request
+
+### Ideas for Enhancement
+- [ ] Add tide times for coastal adventures
+- [ ] Include mountain weather conditions (snow, ice)
+- [ ] Ferry schedule integration
+- [ ] Accommodation booking suggestions
+- [ ] Trail condition reports
+
+## 📄 License
+
+Open source - built for Scottish adventure enthusiasts and outdoor learning!
+
+## 🙏 Credits
+
+- **Weather Data**: [Open-Meteo](https://open-meteo.com/) (free weather API)
+- **Daylight Data**: [Sunrise-Sunset.org](https://sunrise-sunset.org/) API
+- **Routing**: [OpenRouteService](https://openrouteservice.org/) 
+- **Deployment**: [Modal](https://modal.com/) serverless platform
+- **AI**: [Nebius AI Studio](https://studio.nebius.ai/) 
+- **Interface**: [Gradio](https://gradio.app/) web framework
+- **Maps**: [Folium](https://python-visualization.github.io/folium/) Python mapping
 
 ---
 
-*Built with ❤️ for Scottish outdoor enthusiasts and powered by Open-Meteo weather data*
+*Built with ❤️ for Scottish outdoor enthusiasts and powered by multiple free APIs for maximum accessibility*ß
