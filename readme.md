@@ -1,6 +1,6 @@
 # 🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland Adventure Weather Planner
-
-## agent-demo-track
+tags:
+  - agent-demo-track
 
 
 https://github.com/user-attachments/assets/5adf9e57-7087-4523-9198-8134f13cff7c
